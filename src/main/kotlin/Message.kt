@@ -1,6 +1,6 @@
 data class Message(
-    val id: Int,
-    val ownerId: Int,
+    val id: Int = 0,
+    val ownerId: Int = 0,
     val text: String,
-    val isRead: Boolean
+    var isRead: Boolean = false
 )
