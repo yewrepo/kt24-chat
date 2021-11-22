@@ -6,7 +6,6 @@ import extension.clearIfNoMessages
 import extension.containsChat
 import extension.getChat
 import extension.isRead
-import kotlin.streams.toList
 
 object ChatService {
 
@@ -14,8 +13,9 @@ object ChatService {
     private val chats = mutableListOf<ChatHolder>()
 
     fun getChats(ownerId: Int): List<Chat> {
-        return chats.filter { it.chat.firstUserId == ownerId || it.chat.secondUserId == ownerId }
-            .stream()
+        return chats
+            .filter { it.chat.firstUserId == ownerId || it.chat.secondUserId == ownerId }
+            .asSequence()
             .map { it.chat }
             .toList()
     }
@@ -23,20 +23,23 @@ object ChatService {
     fun chatCount(): Int = chats.size
 
     fun getUnreadChatsCount(ownerId: Int): Int {
-        return chats.filter { it.hasUnread(ownerId) > 0 }
-            .stream()
+        return chats
+            .filter { it.hasUnread(ownerId) > 0 }
             .toList().size
     }
 
     fun removeMessage(messageId: Int, chatId: Int): Boolean {
         val chat = chats.getChat(chatId)
         if (chat != null) {
-            val index = chat.messages.indexOfFirst { it.id == messageId }
-            if (index >= 0) {
-                chat.messages.removeAt(index)
-                chats.clearIfNoMessages(chat.id)
-                return true
-            } else throw MessageNotFoundException()
+            return chat.messages
+                .removeIf { it.id == messageId }
+                .let { isSuccess ->
+                    if (isSuccess) {
+                        chats.clearIfNoMessages(chat.id)
+                    } else {
+                        throw MessageNotFoundException()
+                    }
+                }
         } else throw ChatNotFoundException()
     }
 
@@ -49,18 +52,15 @@ object ChatService {
     }
 
     fun getMessages(ownerId: Int, chatId: Int, startId: Int, count: Int): List<Message> {
-        chats.find { holder ->
+        return chats.singleOrNull { holder ->
             holder.chatId() == chatId && holder.hasUserId(ownerId)
-        }?.let { holder ->
-            val chat = holder.chat
-            val index = chat.messages.indexOfFirst { message ->
-                message.id == startId
-            }
-            if (index >= 0) {
-                val lastIndex = Math.min(index + count, chat.messages.size) - 1
-                return chat.messages.slice(IntRange(index, lastIndex)).isRead(ownerId)
-            } else throw MessageNotFoundException()
-        } ?: throw ChatNotFoundException()
+        }.let { holder -> holder?.chat?.messages ?: throw ChatNotFoundException() }
+            .asSequence()
+            .dropWhile { message -> message.id != startId }
+            .take(count)
+            .ifEmpty { throw MessageNotFoundException() }
+            .toList()
+            .isRead(ownerId)
     }
 
     fun getChatByUsers(firstUserId: Int, secondUserId: Int): Chat? {
